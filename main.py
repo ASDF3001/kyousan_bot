@@ -5,7 +5,6 @@ import asyncio
 import random
 import gc
 import discord
-from dotenv import load_dotenv
 from discord.ext import commands, tasks
 from discord import app_commands
 
@@ -15,7 +14,6 @@ from discord import app_commands
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "kyosan_bot.db")
 
-load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 # 1. 設定 (IDはすべてint型に統一してバグを排除)
@@ -30,6 +28,9 @@ ALLOWED_ROLES = (
 
 # race_channel / 各種設定は起動時に bot_config から読み込む（未設定時の既定値）
 DEFAULT_RACE_CHANNEL_ID = 1370574936963285055
+
+# あけおめ判定に使うカスタムスタンプの絵文字ID
+AKEOME_STAMP_ID = 1515228180343160943
 
 NUMBER_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
 
@@ -112,13 +113,6 @@ def save_akeome_record(user_id: int, date_str: str, ms: float, is_flying: int):
             conn.commit()
         except sqlite3.IntegrityError: pass
 
-def get_akeome_best_ms(user_id: int):
-    with get_db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT MIN(response_ms) FROM akeome_records WHERE user_id = ? AND is_flying = 0", (user_id,))
-        row = cur.fetchone()
-        return row[0] if row and row[0] is not None else None
-
 def get_akeome_today_rank(user_id: int, date_str: str):
     with get_db_connection() as conn:
         cur = conn.cursor()
@@ -136,39 +130,46 @@ async def on_message(message: discord.Message):
     thread_name = message.channel.name if thread_id else None
     await asyncio.to_thread(increment_msg_count, message.author.id, thread_id, thread_name)
 
-    race_channel_id = get_race_channel_id()
-    if message.content == "あけおめ" and (race_channel_id == 0 or message.channel.id == race_channel_id):
-        msg_time = message.created_at.astimezone(JST)
-        today_00 = datetime.datetime.combine(msg_time.date(), datetime.time.min, tzinfo=JST)
-        tomorrow_00 = today_00 + datetime.timedelta(days=1)
-
-        # フライング：前日 23:59:00 〜 23:59:59（秒閾値なし、全秒記録）
-        if msg_time.hour == 23 and msg_time.minute == 59:
-            save_akeome_record(message.author.id, tomorrow_00.strftime("%Y-%m-%d"), (msg_time - tomorrow_00).total_seconds() * 1000, 1)
-        # 成功：当日 0:00:00 〜 0:01:00（JST、window拡張）
-        elif msg_time.hour == 0 and msg_time.minute <= 1:
-            date_str = today_00.strftime("%Y-%m-%d")
-            ms = (msg_time - today_00).total_seconds() * 1000
-            save_akeome_record(message.author.id, date_str, ms, 0)
-            await announce_akeome_rank(message, date_str, ms)
-
     await bot.process_commands(message)
 
-async def announce_akeome_rank(message: discord.Message, date_str: str, ms: float):
-    rank = get_akeome_today_rank(message.author.id, date_str)
-    best = get_akeome_best_ms(message.author.id)
+@bot.event
+async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
+    if user.bot: return
+    # カスタムスタンプ以外（通常絵文字等）は無視
+    emoji_id = getattr(reaction.emoji, "id", None)
+    if emoji_id != AKEOME_STAMP_ID:
+        return
+
+    msg = reaction.message
+    race_channel_id = get_race_channel_id()
+    if race_channel_id != 0 and msg.channel.id != race_channel_id:
+        return
+
+    msg_time = msg.created_at.astimezone(JST)
+    today_00 = datetime.datetime.combine(msg_time.date(), datetime.time.min, tzinfo=JST)
+    tomorrow_00 = today_00 + datetime.timedelta(days=1)
+
+    # フライング：前日 23:59:00 〜 23:59:59（秒閾値なし、全秒記録）
+    if msg_time.hour == 23 and msg_time.minute == 59:
+        save_akeome_record(user.id, tomorrow_00.strftime("%Y-%m-%d"), (msg_time - tomorrow_00).total_seconds() * 1000, 1)
+        return
+    # 成功：当日 0:00:00 〜 0:01:00（JST、window拡張）
+    if msg_time.hour == 0 and msg_time.minute <= 1:
+        date_str = today_00.strftime("%Y-%m-%d")
+        ms = (msg_time - today_00).total_seconds() * 1000
+        save_akeome_record(user.id, date_str, ms, 0)
+        await announce_akeome_rank(msg, user, date_str)
+
+async def announce_akeome_rank(message: discord.Message, user: discord.User, date_str: str):
+    rank = get_akeome_today_rank(user.id, date_str)
     if rank is None: return
 
     if 1 <= rank <= 9:
         try: await message.add_reaction(NUMBER_EMOJIS[rank - 1])
         except: pass
     else:
-        try: await message.channel.send(f"{message.author.mention} **{rank}位！**")
+        try: await message.channel.send(f"{user.mention} **{rank}位！**")
         except: pass
-
-    best_line = f"\n🏆 あなたの自己ベスト: +{best:.3f} ms" if best is not None else ""
-    try: await message.channel.send(f"{message.author.mention} あけおめ計測: +{ms:.3f} ms{best_line}", delete_after=15)
-    except: pass
 
 # ==============================================================================
 # 4. 走査ロジック（省メモリ高速化）
@@ -264,41 +265,6 @@ async def announce_daily_akeome():
     embed.add_field(name="成功者 (最速順)", value="".join(s_lines) or "データなし", inline=False)
     if f_lines: embed.add_field(name="フライング (シベリア行き)", value="".join(f_lines), inline=False)
     await channel.send(embed=embed)
-
-async def post_akeome_progress_bar():
-    """0:00以降の集計期間中、race_channel へ CUI 進捗バーを更新投稿する"""
-    race_channel_id = get_race_channel_id()
-    if not race_channel_id: return
-    channel = bot.get_channel(race_channel_id)
-    if not channel: return
-
-    start = datetime.datetime.combine(datetime.datetime.now(JST).date(), datetime.time(hour=0, minute=0, second=0, tzinfo=JST))
-    end = start + datetime.timedelta(minutes=1)
-    try:
-        bar_msg = await channel.send(make_progress_bar(0.0, "あけおめ集計中"))
-    except: return
-
-    while True:
-        now = datetime.datetime.now(JST)
-        if now >= end:
-            try: await bar_msg.edit(content=make_progress_bar(1.0, "あけおめ集計完了"))
-            except: pass
-            break
-        ratio = max(0.0, min(1.0, (now - start).total_seconds() / 60.0))
-        try: await bar_msg.edit(content=make_progress_bar(ratio, "あけおめ集計中"))
-        except: pass
-        await asyncio.sleep(5)
-
-def make_progress_bar(ratio: float, label: str):
-    ratio = max(0.0, min(1.0, ratio))
-    filled = int(ratio * 10)
-    bar = "█" * filled + "░" * (10 - filled)
-    pct = int(ratio * 100)
-    return f"[{bar}] {pct}% {label}"
-
-@tasks.loop(time=datetime.time(hour=0, minute=0, second=0, tzinfo=JST))
-async def akeome_progress_watcher():
-    bot.loop.create_task(post_akeome_progress_bar())
 
 @tasks.loop(time=datetime.time(hour=20, minute=0, second=0, tzinfo=JST))
 async def weekly_ranking_post():
@@ -558,7 +524,6 @@ async def on_ready():
     if not announce_daily_akeome.is_running(): announce_daily_akeome.start()
     if not weekly_ranking_post.is_running(): weekly_ranking_post.start()
     if not automated_thread_sync.is_running(): automated_thread_sync.start()
-    if not akeome_progress_watcher.is_running(): akeome_progress_watcher.start()
     print(f"システム稼働。共産趣味ボット統制下オンライン。({bot.user})")
 
 if __name__ == "__main__":
