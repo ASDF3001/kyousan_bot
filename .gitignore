@@ -8,3 +8,4 @@
 
 # 副産物
 .pc.conf
+__pycache__/
