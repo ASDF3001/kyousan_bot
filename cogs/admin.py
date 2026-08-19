@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import gc
 import logging
+import typing
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -24,7 +25,7 @@ class AdminCog(commands.Cog):
     def cog_unload(self):
         self.automated_thread_sync.cancel()
 
-    async def perform_thread_sync(self, target_channel: discord.TextChannel, notify_channel: discord.TextChannel = None):
+    async def perform_thread_sync(self, target_channel: typing.Union[discord.TextChannel, discord.ForumChannel], notify_channel: discord.TextChannel = None):
         thread_counts = {}
 
         threads_dict = {t.id: t for t in target_channel.threads}
@@ -107,7 +108,7 @@ class AdminCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         action: app_commands.Choice[str],
-        channel: discord.TextChannel = None,
+        channel: typing.Union[discord.TextChannel, discord.ForumChannel] = None,
         notify: bool = True
     ):
         if not is_authorized_for_censor(interaction):
