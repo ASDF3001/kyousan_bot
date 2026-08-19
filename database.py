@@ -1,6 +1,7 @@
 import sqlite3
 import logging
 import time
+import datetime
 from config import DB_PATH, DEFAULT_RACE_CHANNEL_ID
 
 logger = logging.getLogger(__name__)
