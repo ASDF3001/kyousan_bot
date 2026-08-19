@@ -9,10 +9,8 @@ import database
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ★ Bot接続「前」にDBとテーブルを物理生成する
 database.init_db()
 
-# --- メモリ極限軽量化のためのインテント＆キャッシュ制限 ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True

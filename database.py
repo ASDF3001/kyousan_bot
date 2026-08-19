@@ -209,7 +209,6 @@ def process_user_login_and_points(user_id: int, msg_content: str, today_date, cu
         else:
             monthly_points, consecutive_days, last_login_date, last_msg_content, db_month = row
 
-        # 月跨ぎ判定 (月が替わった場合リセット & 履歴保存)
         if db_month != current_month_str:
             if db_month and monthly_points > 0:
                 conn.execute(
@@ -217,7 +216,6 @@ def process_user_login_and_points(user_id: int, msg_content: str, today_date, cu
                     (user_id, db_month, monthly_points)
                 )
             monthly_points = 0
-            # 月が変わっても連続ログイン日数はリセットしない！
             db_month = current_month_str
 
         is_first_login = False
@@ -234,7 +232,6 @@ def process_user_login_and_points(user_id: int, msg_content: str, today_date, cu
             monthly_points += login_bonus
             last_login_date = today_str
 
-        # スパム対策：連続して全く同じ内容を連投した場合は発言ポイントなし
         clean_content = msg_content.strip()
         if last_msg_content is None or clean_content != last_msg_content:
             monthly_points += 1

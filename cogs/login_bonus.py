@@ -23,7 +23,6 @@ class LoginBonusCog(commands.Cog):
         today_date = now_jst.date()
         current_month_str = now_jst.strftime("%Y-%m")
 
-        # 画像やスタンプ等のみでテキストが空の場合の対応
         msg_text = message.content.strip()
         if not msg_text:
             if message.attachments:
@@ -44,7 +43,6 @@ class LoginBonusCog(commands.Cog):
         if is_first_login:
             reply_text = f"-# ログインしました！\n-# {consecutive_days}日連続 | {total_points}point"
             try:
-                # 環境変数でログイン通知先が指定されていればそこへ、なければ発言したチャンネルへ
                 target_channel = message.channel
                 from config import LOGIN_NOTIFY_CHANNEL_ID
                 if LOGIN_NOTIFY_CHANNEL_ID:
