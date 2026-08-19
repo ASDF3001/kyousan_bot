@@ -44,7 +44,15 @@ class LoginBonusCog(commands.Cog):
         if is_first_login:
             reply_text = f"-# ログインしました！\n-# {consecutive_days}日連続 | {total_points}point"
             try:
-                sent_msg = await message.channel.send(reply_text)
+                # 環境変数でログイン通知先が指定されていればそこへ、なければ発言したチャンネルへ
+                target_channel = message.channel
+                from config import LOGIN_NOTIFY_CHANNEL_ID
+                if LOGIN_NOTIFY_CHANNEL_ID:
+                    ch = self.bot.get_channel(LOGIN_NOTIFY_CHANNEL_ID)
+                    if ch:
+                        target_channel = ch
+                        
+                sent_msg = await target_channel.send(reply_text)
                 await sent_msg.add_reaction(WASTEBASKET_EMOJI)
             except discord.HTTPException as e:
                 logger.warning("ログイン通知の送信またはリアクション付与に失敗しました: %s", e)
