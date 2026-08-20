@@ -8,8 +8,6 @@ from config import JST
 
 logger = logging.getLogger(__name__)
 
-WASTEBASKET_EMOJI = "🗑️"
-
 class LoginBonusCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -50,38 +48,9 @@ class LoginBonusCog(commands.Cog):
                     if ch:
                         target_channel = ch
                         
-                sent_msg = await target_channel.send(reply_text)
-                await sent_msg.add_reaction(WASTEBASKET_EMOJI)
+                await target_channel.send(reply_text, delete_after=5.0)
             except discord.HTTPException as e:
-                logger.warning("ログイン通知の送信またはリアクション付与に失敗しました: %s", e)
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Bot自身のリアクションイベントは無視（ただし誰かが後から押したリアクションを処理）
-        if payload.user_id == self.bot.user.id:
-            return
-
-        emoji_str = str(payload.emoji)
-        if emoji_str not in ("🗑️", "🗑"):
-            return
-
-        channel = self.bot.get_channel(payload.channel_id)
-        if not channel:
-            try:
-                channel = await self.bot.fetch_channel(payload.channel_id)
-            except discord.HTTPException:
-                return
-
-        try:
-            msg = await channel.fetch_message(payload.message_id)
-        except discord.HTTPException:
-            return
-
-        if msg.author.id == self.bot.user.id and "ログインしました！" in msg.content:
-            try:
-                await msg.delete()
-            except discord.HTTPException as e:
-                logger.warning("ログイン通知メッセージの自動削除に失敗しました: %s", e)
+                logger.warning("ログイン通知の送信に失敗しました: %s", e)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LoginBonusCog(bot))

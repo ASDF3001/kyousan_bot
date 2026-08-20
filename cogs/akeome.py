@@ -18,37 +18,45 @@ class AkeomeCog(commands.Cog):
         self.announce_daily_akeome.cancel()
 
     @commands.Cog.listener()
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
-        if user.bot:
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.member and payload.member.bot:
             return
-        emoji_id = getattr(reaction.emoji, "id", None)
+            
+        emoji_id = payload.emoji.id
         if emoji_id != AKEOME_STAMP_ID:
             return
 
-        msg = reaction.message
         race_channel_id = await asyncio.to_thread(database.get_race_channel_id)
-        if race_channel_id != 0 and msg.channel.id != race_channel_id:
+        if race_channel_id != 0 and payload.channel_id != race_channel_id:
             return
 
-        msg_time = msg.created_at.astimezone(JST)
-        today_00 = datetime.datetime.combine(msg_time.date(), datetime.time.min, tzinfo=JST)
+        now_jst = datetime.datetime.now(JST)
+        today_00 = datetime.datetime.combine(now_jst.date(), datetime.time.min, tzinfo=JST)
         tomorrow_00 = today_00 + datetime.timedelta(days=1)
 
-        if msg_time.hour == 23 and msg_time.minute == 59:
+        if now_jst.hour == 23 and now_jst.minute == 59:
             await asyncio.to_thread(
                 database.save_akeome_record,
-                user.id,
+                payload.user_id,
                 tomorrow_00.strftime("%Y-%m-%d"),
-                (msg_time - tomorrow_00).total_seconds() * 1000,
+                (now_jst - tomorrow_00).total_seconds() * 1000,
                 1
             )
             return
 
-        if msg_time.hour == 0 and msg_time.minute <= 1:
+        if now_jst.hour == 0 and now_jst.minute <= 1:
             date_str = today_00.strftime("%Y-%m-%d")
-            ms = (msg_time - today_00).total_seconds() * 1000
-            await asyncio.to_thread(database.save_akeome_record, user.id, date_str, ms, 0)
-            await self.announce_akeome_rank(msg, user, date_str)
+            ms = (now_jst - today_00).total_seconds() * 1000
+            await asyncio.to_thread(database.save_akeome_record, payload.user_id, date_str, ms, 0)
+            
+            channel = self.bot.get_channel(payload.channel_id)
+            if channel:
+                try:
+                    msg = await channel.fetch_message(payload.message_id)
+                    user = self.bot.get_user(payload.user_id) or await self.bot.fetch_user(payload.user_id)
+                    await self.announce_akeome_rank(msg, user, date_str)
+                except discord.HTTPException as e:
+                    logger.warning("あけおめランク通知の処理中にエラーが発生しました: %s", e)
 
     async def announce_akeome_rank(self, message: discord.Message, user: discord.User, date_str: str):
         rank = await asyncio.to_thread(database.get_akeome_today_rank, user.id, date_str)
